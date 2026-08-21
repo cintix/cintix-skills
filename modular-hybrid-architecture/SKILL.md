@@ -1,8 +1,8 @@
-# Modular Hybrid Architecture Skill — v1.2
+# Modular Hybrid Architecture Skill — v1.3
 
 ## Purpose
 
-Use this skill to design or refactor applications into a modular monolith that combines:
+Use this skill to design or refactor applications into a modular architecture that combines:
 
 * feature-module ownership
 * explicit public module contracts
@@ -10,48 +10,361 @@ Use this skill to design or refactor applications into a modular monolith that c
 * internal clean architecture principles where they add value
 * pragmatic service-oriented orchestration without excessive layering
 * strong data ownership and explicit workflow coordination
+* local-first organization
+* progressive structure that grows only when responsibilities actually cross module boundaries
+* clear filesystem navigation for developers
 
-The architecture prioritizes **module boundaries, ownership, locality, controlled dependencies, and maintainability at scale** over architectural ceremony.
+The architecture prioritizes **ownership, locality, module boundaries, controlled dependencies, developer readability, and maintainability at scale** over architectural ceremony.
 
----
+The primary goal is not to force a specific folder template.
 
-## Core Principles
-
-1. Organize by feature or domain capability, not horizontal technical layers.
-2. Each module owns its business logic, domain models, persistence, data, and local transactions.
-3. A module root represents the module's complete public API surface.
-4. A module root may contain multiple public contracts when they represent cohesive business capabilities.
-5. Other modules may depend only on public contracts and public events located in the target module root.
-6. No module may import another module's internal implementation.
-7. Persistence entities and internal domain models must never leak outside the owning module.
-8. Shared DTOs may cross module boundaries, but every business DTO must have exactly one owning module.
-9. Shared DTOs are transport and boundary types only and must not become a shared domain model.
-10. Infrastructure contains reusable technical capabilities only and must not contain feature business logic.
-11. Cross-module wiring happens only in the composition root.
-12. Business orchestration never belongs in the composition root or infrastructure.
-13. Direct cyclic module dependencies are forbidden.
-14. Each module owns its own data consistency and local transactions.
-15. Cross-module workflows must explicitly handle partial failure where required.
-16. Orchestration modules may own workflow state but must never become owners of participating modules' business data.
+The goal is to make the correct ownership of code obvious and keep responsibilities as local as possible.
 
 ---
 
-# Module Public API
+# Core Principles
 
-The module root represents the complete public API surface of the module.
+1. Organize by feature or domain capability, not global horizontal technical layers.
+2. Keep code inside the module that owns it unless there is a genuine reason to share it.
+3. A module owns its business logic, domain models, persistence, data, local runtime concerns, and local transactions.
+4. Public module contracts expose only the capabilities other modules legitimately need.
+5. Other modules must never depend on another module's internal implementation.
+6. Persistence entities and internal domain models must never leak outside the owning module.
+7. Shared DTOs may cross module boundaries, but every business DTO must have exactly one owning module.
+8. Shared DTOs are transport and boundary types only and must not become a shared domain model.
+9. Runtime follows ownership and remains inside a module unless runtime responsibility genuinely spans multiple modules.
+10. Cross-module business orchestration belongs to the module that owns the business outcome.
+11. Cyclic module dependencies are forbidden.
+12. Each module owns its own data consistency and local transactions.
+13. Cross-module workflows must explicitly consider partial failure where correctness requires it.
+14. Orchestration modules may own workflow state but must never become owners of participating modules' business data.
+15. Structure should grow with complexity rather than manufacture complexity.
+16. The filesystem is part of the architecture and should help developers understand ownership and navigate the system.
+17. Architectural containers should exist because responsibilities require them, not because a reference layout contains them.
+18. Prefer explicit principles over premature architectural rules.
 
-A module may expose multiple public contracts when they represent distinct, cohesive business capabilities.
+---
+
+# Local First
+
+Local First is a central principle of this architecture.
+
+Code should remain at the narrowest valid ownership scope.
+
+If something belongs to only one module, it stays inside that module.
+
+This applies to:
+
+```text
+models
+DTOs
+services
+persistence
+runtime
+configuration
+messaging
+integrations
+workers
+technical helpers
+framework adapters
+```
 
 Example:
 
 ```text
+customers/
+  Customers.java
+
+  models/
+    Customer.java
+    CustomerDto.java
+
+  services/
+    CustomersService.java
+
+  persistence/
+    CustomerEntity.java
+    CustomerRepository.java
+
+  runtime/
+    Main.java
+```
+
+If no other module consumes `CustomerDto`, there is no reason to move it into `shared`.
+
+If the runtime exists only to run Customers, there is no reason to create a root-level `runtime`.
+
+If database or messaging code is used only by Customers, there is no reason to create a global technical module for it.
+
+Core rule:
+
+> Keep responsibility inside its owning module until a real cross-module responsibility exists.
+
+---
+
+# Module Bleeding
+
+**Module Bleeding** is the unnecessary movement of module-owned concerns outside their owning module.
+
+Examples of module bleeding include:
+
+```text
+shared/customers/CustomerDto
+```
+
+when only Customers uses the DTO.
+
+```text
+runtime/customer-worker
+```
+
+when the worker belongs only to Customers.
+
+```text
+modules/database
+```
+
+when only one module uses the database capability.
+
+```text
+common/CustomerMapper
+```
+
+when the mapper exists only for Customers.
+
+Module bleeding weakens locality and makes ownership harder to understand.
+
+It often happens because code is moved outward:
+
+* in anticipation of future reuse
+* because it looks more architecturally organized
+* because something uses a technical framework
+* because two implementations look similar
+* because a reference architecture contains a corresponding folder
+
+Avoid this.
+
+Core rule:
+
+> Do not move code outward merely because it could theoretically be reused.
+
+---
+
+# Architectural Promotion
+
+Responsibilities may move outward when their ownership genuinely expands.
+
+Conceptually:
+
+```text
+local module responsibility
+        ↓
+real cross-module need appears
+        ↓
+promote outward
+```
+
+Promotion should follow actual system needs.
+
+For example:
+
+```text
+customers/
+  models/
+    CustomerDto.java
+```
+
+may later become:
+
+```text
+shared/
+  customers/
+    CustomerDto.java
+```
+
+when other modules legitimately consume the DTO.
+
+Likewise:
+
+```text
 orders/
+  runtime/
+    worker/
+```
+
+remains inside Orders while the worker belongs only to Orders.
+
+A root-level runtime becomes appropriate only when the runtime itself spans multiple modules.
+
+Promotion is intentional architectural evolution.
+
+It should not be speculative.
+
+---
+
+# Project Structure Is Progressive
+
+The architecture does not require every project to contain:
+
+```text
+shared/
+modules/
+runtime/
+```
+
+These are available structural concepts, not mandatory root folders.
+
+A small application may simply be:
+
+```text
+customers/
+  Customers.java
+  models/
+  services/
+  persistence/
+  runtime/
+```
+
+This may already satisfy the architecture completely.
+
+As the application grows:
+
+```text
+customers/
+orders/
+payments/
+```
+
+may become:
+
+```text
+modules/
+  customers/
+  orders/
+  payments/
+```
+
+when grouping the modules improves navigation.
+
+If modules begin sharing boundary DTOs:
+
+```text
+shared/
+  customers/
+  orders/
+```
+
+may become useful.
+
+If one runtime begins composing several modules:
+
+```text
+runtime/
+  api/
+```
+
+may become useful.
+
+The root structure should emerge from actual responsibilities.
+
+Core rule:
+
+> Folders are created because boundaries exist.
+
+> Boundaries are not invented because folders exist in the reference architecture.
+
+---
+
+# Structural Readability
+
+Architecture exists for developers as well as compilers.
+
+The filesystem should make ownership and intent visible.
+
+A developer should be able to inspect the project structure and quickly answer questions such as:
+
+```text
+Where does this capability belong?
+
+Who owns this model?
+
+Is this type shared?
+
+Does this runtime belong to one module or several?
+
+What may another module consume?
+
+Where is the implementation hidden?
+```
+
+The theoretically pure location is not always the most useful location for humans.
+
+Consistency, discoverability, and readability are legitimate architectural concerns.
+
+Core rule:
+
+> A good architecture should make the right place for new code feel obvious.
+
+The filesystem is therefore part of the architecture contract.
+
+---
+
+# Modules
+
+A module represents a cohesive capability with clear ownership.
+
+Most modules represent business or domain capabilities.
+
+Examples:
+
+```text
+customers
+orders
+payments
+inventory
+subscriptions
+checkout
+fulfillment
+```
+
+A module should behave conceptually like a small application inside the larger system.
+
+It may own:
+
+```text
+public contracts
+domain models
+services
+persistence
+runtime
+integrations
+configuration
+events
+transactions
+local technical behavior
+```
+
+Not every module needs all of these.
+
+A module should contain only the structure its complexity requires.
+
+---
+
+# Module Layout
+
+A larger module may look like:
+
+```text
+orders/
+
   Orders.java
   OrderQueries.java
   OrderAdministration.java
   OrderEvents.java
 
   endpoint/
+
+  models/
 
   services/
     OrdersService.java
@@ -68,6 +381,55 @@ orders/
       repositories/
       managers/
       mappers/
+
+    messaging/
+
+    integrations/
+
+  runtime/
+```
+
+A smaller module may look like:
+
+```text
+pricing/
+  Pricing.java
+  PricingService.java
+```
+
+or:
+
+```text
+customers/
+  Customers.java
+  Customer.java
+  CustomerRepository.java
+  Main.java
+```
+
+Both are valid.
+
+Do not create empty directories or abstraction layers simply to match the reference structure.
+
+---
+
+# Module Public API
+
+The public API of a module consists of the capabilities and public boundary contracts it intentionally exposes.
+
+Public behavior contracts and public integration events should normally remain clearly visible near the module root.
+
+Example:
+
+```text
+orders/
+  Orders.java
+  OrderQueries.java
+  OrderAdministration.java
+  OrderEvents.java
+
+  services/
+    ...
 ```
 
 Other modules may import:
@@ -77,7 +439,7 @@ import orders.Orders;
 import orders.OrderQueries;
 ```
 
-They may never import:
+They may not import implementation details such as:
 
 ```java
 import orders.services.OrdersService;
@@ -85,24 +447,38 @@ import orders.services.persistence.OrderRepository;
 import orders.services.domain.Order;
 ```
 
-The root directory is therefore not merely organizational.
+Shared DTOs owned by the module may live under:
 
-It defines the module's externally visible boundary.
+```text
+shared/orders/
+```
+
+when genuine cross-module consumption makes that location useful.
+
+The externally visible API of a module therefore consists of:
+
+```text
+module public contracts
++
+module public events
++
+module-owned shared boundary DTOs
+```
 
 ---
 
 # Public Contract Rules
 
-1. Module-root contracts are the only synchronous cross-module entry points.
+1. Public module contracts are the only synchronous cross-module entry points.
 2. Public contracts should represent cohesive business capabilities.
-3. Split large contracts when they become conceptually broad.
+3. Split contracts when they become conceptually broad.
 4. Do not create one interface per individual method or use case.
-5. Do not expose repositories, mappers, factories, validators, managers, or implementation abstractions through the module root.
-6. Public contracts should expose behavior rather than internal implementation details.
+5. Do not expose repositories, mappers, factories, validators, internal managers, persistence entities, or implementation abstractions as public module contracts.
+6. Public contracts should expose behavior rather than implementation details.
 7. Public contracts must never expose persistence entities or internal domain models.
-8. Public contract implementations live inside the module's `services` package.
-9. Root contracts should remain intentionally focused and understandable.
-10. A large root API surface is an architectural review signal even if all rules are technically followed.
+8. Public contract implementations remain inside the owning module.
+9. Public contracts should remain focused and understandable.
+10. A large public API surface is an architectural review signal even if all structural rules are technically followed.
 
 Prefer:
 
@@ -122,9 +498,9 @@ GetOrder
 FindOrder
 ```
 
-unless those concepts genuinely represent stable business capabilities.
+unless those concepts genuinely represent stable capabilities.
 
-The goal is to avoid both extremes:
+Avoid both:
 
 ```text
 one 150-method interface
@@ -136,17 +512,19 @@ and:
 150 one-method interfaces
 ```
 
-Split by stable business capability, not by arbitrary operation count.
+Split by stable capability, not arbitrary operation count.
 
 ---
 
 # Shared DTO Ownership
 
-Shared DTOs are allowed outside feature modules, but every business DTO must belong to exactly one owning module.
+`shared` exists for publicly consumable boundary data that genuinely crosses module boundaries.
 
-Shared DTOs must therefore be organized by module ownership.
+It is not a required project folder.
 
-Example:
+If no data is shared between modules, there is no reason to create it.
+
+When required:
 
 ```text
 shared/
@@ -163,7 +541,7 @@ shared/
     PaymentStatusDto.java
 ```
 
-The directory under `shared` identifies the module that owns the DTO contract.
+Every business DTO has exactly one owning module.
 
 For example:
 
@@ -173,75 +551,57 @@ shared/customers/CustomerDto.java
 
 means:
 
-> `CustomerDto` is publicly consumable, but its semantics and evolution are owned by the `customers` module.
+> CustomerDto is publicly consumable, but Customers owns its meaning and evolution.
 
-Other modules may consume the DTO, but they do not gain ownership of it.
+Other modules may consume it.
+
+They do not gain ownership of it.
 
 ---
 
 # Shared DTO Rules
 
-1. Every business DTO must belong to exactly one owning module.
-2. Module-owned DTOs must be placed under:
+1. Use `shared` only when a boundary type is genuinely consumed outside its owning module.
+2. Every shared business DTO must belong to exactly one owning module.
+3. Shared module-owned DTOs should be placed under:
 
 ```text
 shared/<module>/
 ```
 
-3. The owning module defines the DTO's meaning, structure, and evolution.
-4. Other modules may consume the DTO but must not redefine its semantics.
-5. Shared DTOs are boundary and transport types only.
-6. Shared DTOs must not become the application's shared domain model.
-7. Shared DTOs must not contain module-specific business behavior.
-8. Persistence entities must never be placed in `shared`.
-9. Internal domain models must never be placed in `shared`.
-10. A shared DTO does not imply shared ownership of the underlying business state.
-11. Consumers should convert shared DTOs into their own internal representation when business behavior or local invariants require it.
-12. A DTO being used by many modules does not make it ownerless.
-13. DTO ownership should remain visible directly in package or folder structure.
+4. The owning module defines the DTO's meaning, structure, and evolution.
+5. Other modules may consume the DTO but must not redefine its semantics.
+6. Shared DTOs are boundary and transport types only.
+7. Shared DTOs must not become the application's shared domain model.
+8. Shared DTOs must not contain module-specific business behavior.
+9. Persistence entities must never be placed in `shared`.
+10. Internal domain models must never be placed in `shared`.
+11. A shared DTO does not imply shared ownership of the underlying business state.
+12. Consumers should map shared DTOs into their own representation when local business behavior or invariants require it.
+13. A DTO being used by many modules does not make it ownerless.
+14. DTO ownership should remain visible directly in the folder or package structure.
+15. Do not promote a local DTO into `shared` merely because it might be useful later.
 
 Conceptually:
 
 ```text
 customers/
-  services/
-    domain/
-      Customer.java
-
-       ↓ mapped to
-
-shared/
-  customers/
-    CustomerDto.java
-
-       ↓ consumed by
-
+  internal Customer model
+        ↓
+shared/customers/
+  CustomerDto
+        ↓
 orders/
-  services/
-    ...
+  consumer representation
 ```
 
-Ownership remains:
-
-```text
-Customer domain state
-        ↓
-     Customers
-
-CustomerDto contract
-        ↓
-     Customers
-
-Consumer interpretation
-        ↓
-      Orders
-```
+Ownership remains with Customers.
 
 ---
 
 # Avoid Unowned Shared Types
 
-Avoid structures such as:
+Avoid:
 
 ```text
 shared/
@@ -253,9 +613,15 @@ shared/
 
 because ownership becomes unclear.
 
-Also avoid turning `shared/common` into a general dumping ground.
+Also avoid turning:
 
-A small common area may exist for genuinely ownerless technical transport concepts:
+```text
+shared/common/
+```
+
+into a general dumping ground.
+
+A small common area may exist for genuinely ownerless boundary concepts such as:
 
 ```text
 shared/
@@ -266,113 +632,59 @@ shared/
 
 but it should remain intentionally small.
 
-If a DTO represents a business concept, it should normally have an owning module.
-
 Core rule:
 
-> `shared` means publicly consumable data contracts.
+> `shared` means intentionally shared boundary data.
 
 It does not mean:
 
-> data that belongs to everyone.
+> data that belongs to everybody.
 
 ---
 
-# Standard Module Layout
+# Local Models
+
+Types used only by one module remain inside that module.
+
+Example:
 
 ```text
-<module>/
-
-  <PublicCapability>.java
-  <PublicCapability>.java
-  <PublicEvents>.java
-
-  endpoint/
-
-  services/
-    <CapabilityImplementation>.java
-
-    domain/
-      models/
-      rules/
-      events/
-
-    persistence/
-      entities/
-      repositories/
-      managers/
-      mappers/
+customers/
+  models/
+    CustomerDto.java
+    CustomerSummary.java
 ```
 
-The module root should remain intentionally small.
+There is no architectural advantage in placing these under root `shared` when no external consumer exists.
 
-Every type placed directly in the module root must represent something another module is legitimately allowed to consume.
-
-The root must not contain:
+If another module later requires one of these types, the type may be promoted into:
 
 ```text
-repositories
-mappers
-factories
-validators
-internal managers
-persistence entities
-internal domain models
-implementation classes
+shared/customers/
 ```
 
-unless one of those concepts genuinely forms part of the public business API, which should be rare.
+if that is the appropriate public boundary representation.
 
----
-
-# Infrastructure Layout
-
-```text
-infrastructure/
-  logging/
-  persistence/
-  annotations/
-  messaging/
-  modules/
-  configuration/
-```
-
-Infrastructure may provide reusable technical capabilities such as:
-
-* database configuration
-* logging
-* messaging
-* serialization
-* HTTP infrastructure
-* framework configuration
-* dependency wiring
-* technical adapters
-
-Infrastructure must not contain feature-specific business behavior.
-
-A useful test is:
-
-> Could this code exist without knowing any business module?
-
-If yes, it may belong in infrastructure.
-
-If it understands business semantics, it probably belongs inside a feature module.
+Local first always wins until actual sharing exists.
 
 ---
 
 # Internal Module Architecture
 
-Each module may internally use clean architecture principles while remaining pragmatic and lightweight.
+Each module may internally use Clean Architecture principles where they provide value.
 
-The module boundary is more important than strict internal layering.
+Clean Architecture is an internal implementation technique.
 
-Inside the module:
+It is not the global project structure.
 
-* domain logic should remain independent from framework and persistence concerns
-* persistence should adapt data storage to the module's needs
-* services coordinate internal domain logic
+Inside a module:
+
+* domain logic should remain independent from framework and persistence concerns where that independence matters
+* persistence adapts storage to the module's needs
+* services coordinate internal behavior
 * endpoints adapt external requests into module operations
-* internal abstractions should exist only when they provide real value
+* integrations adapt external systems to module needs
+* internal abstractions should exist only when they provide meaningful value
 
 Avoid:
 
@@ -380,44 +692,349 @@ Avoid:
 * command-handler explosion
 * repository interfaces with no meaningful boundary value
 * one-class-per-operation ceremony
-* abstraction introduced only to satisfy a pattern
-* framework-shaped domain models
-* domain rules spread across unrelated layers
+* abstractions introduced only to satisfy a pattern
+* framework-shaped domain models where unnecessary
+* domain rules scattered across unrelated areas
+* moving technical code out of the module merely because it uses infrastructure technology
 
-Prefer simple coordination where dependency direction and ownership remain clear.
+Core rule:
+
+> The module boundary matters more than internal architectural purity.
 
 ---
 
 # Internal Dependency Rules
 
-1. `endpoint` may call internal services or public-contract implementations.
+1. Endpoints may call internal services or public-contract implementations.
 2. Internal services may depend on domain logic and module-private abstractions.
-3. Domain logic must not depend on endpoint, persistence, frameworks, infrastructure, or another module's internals.
+3. Domain logic should not depend on endpoint, persistence, framework, runtime, or another module's internals.
 4. Persistence may depend on internal domain representations where mapping is required.
 5. Persistence entities remain private to the owning module.
-6. Cross-module calls may only target public module-root contracts.
-7. Infrastructure may provide technical capabilities but must not depend on feature internals.
-8. Public contract implementations may coordinate internal services and domain behavior.
-9. Domain logic must not know how it is persisted.
-10. Module internals may evolve freely as long as the public contracts remain compatible.
+6. Cross-module calls may target only public contracts.
+7. Public contract implementations may coordinate internal services and domain behavior.
+8. Domain logic should not know how it is persisted.
+9. Module internals may evolve freely as long as public contracts remain compatible.
+10. Module-specific persistence, messaging, runtime, configuration, and integration logic stays inside the module unless a real shared responsibility emerges.
 
-Conceptually:
+---
+
+# Technical Capabilities
+
+Technical behavior is local by default.
+
+Using a database, queue, cache, HTTP client, logger, serializer, or external framework does not automatically justify a global technical module.
+
+Example:
 
 ```text
-Endpoint
-   ↓
-Application / Facade Services
-   ↓
-Domain
-
-Persistence adapters
-   ↓
-Domain
+orders/
+  persistence/
+  messaging/
 ```
 
-Persistence may know domain representations.
+is correct if those concerns belong only to Orders.
 
-Domain must not know persistence.
+If multiple modules eventually require the same cohesive technical capability, it may be promoted into a reusable module.
+
+For example:
+
+```text
+modules/
+  messaging/
+```
+
+may become appropriate when several modules genuinely share the same transport capability.
+
+But reuse should be demonstrated, not predicted.
+
+Core rule:
+
+> Technology does not determine ownership.
+
+> Responsibility determines ownership.
+
+---
+
+# Reusable Technical Modules
+
+A reusable technical capability may become a module when actual cross-module use justifies it.
+
+Examples may include:
+
+```text
+database
+messaging
+logging
+serialization
+cache
+files
+clock
+http
+```
+
+Such modules follow the same encapsulation principles as business modules.
+
+Example:
+
+```text
+modules/
+  messaging/
+    Messaging.java
+
+    services/
+      KafkaMessaging.java
+      serialization/
+      transport/
+```
+
+A technical module may understand:
+
+```text
+message transport
+delivery mechanics
+broker connectivity
+serialization mechanics
+```
+
+It must not understand:
+
+```text
+Order
+Customer
+Payment
+Subscription
+```
+
+A generic messaging module may transport `OrderPlaced`.
+
+Orders still owns:
+
+```text
+what OrderPlaced means
+when OrderPlaced occurs
+what data it contains
+```
+
+---
+
+# Technical Module Rules
+
+1. Technical capability modules are optional.
+2. Do not create them before actual shared use exists.
+3. They must represent a cohesive reusable capability.
+4. They must expose intentional public contracts.
+5. Their internal implementation remains hidden.
+6. They must not own feature-specific business semantics.
+7. They must not own feature persistence entities.
+8. They must not become generic utility dumping grounds.
+9. Shared implementation similarity alone does not justify extracting a technical module.
+10. Technical modules participate in the same acyclic module dependency graph as business modules.
+
+Avoid modules such as:
+
+```text
+utils
+helpers
+misc
+common-services
+```
+
+unless they genuinely represent a meaningful capability.
+
+---
+
+# Runtime Ownership
+
+Runtime follows ownership.
+
+Runtime may include:
+
+```text
+process startup
+dependency injection bootstrap
+framework startup
+hosting
+worker lifecycle
+schedulers
+command-line entry points
+runtime configuration
+health checks
+shutdown handling
+```
+
+If a runtime belongs to only one module, it remains inside that module.
+
+Example:
+
+```text
+orders/
+  runtime/
+    api/
+    worker/
+```
+
+Even if the worker is independently executable, it remains local because Orders owns it.
+
+Core rule:
+
+> Standalone does not mean global.
+
+---
+
+# Shared Runtime
+
+A root-level `runtime` becomes appropriate only when runtime responsibility spans multiple modules.
+
+Example:
+
+```text
+modules/
+  customers/
+  orders/
+  payments/
+
+runtime/
+  api/
+```
+
+where the API runtime composes:
+
+```text
+Customers
+Orders
+Payments
+```
+
+Another example:
+
+```text
+runtime/
+  worker/
+```
+
+may be appropriate if one worker runtime hosts capabilities from multiple modules.
+
+Root-level runtime is therefore not:
+
+> the place where all executable code lives.
+
+It is:
+
+> the place where shared execution responsibility lives.
+
+---
+
+# Runtime Promotion
+
+A runtime begins locally.
+
+Example:
+
+```text
+orders/
+  runtime/
+    worker/
+```
+
+If its responsibility later expands to coordinate or host multiple modules, it may be promoted outward:
+
+```text
+runtime/
+  worker/
+```
+
+This follows the same Local First principle as DTOs and technical capabilities.
+
+Core rule:
+
+> Runtime stays inside its owning module unless the runtime itself becomes shared across module boundaries.
+
+---
+
+# Runtime Rules
+
+1. Runtime remains inside its owning module by default.
+2. Root-level runtime exists only for genuinely shared or cross-module execution contexts.
+3. A standalone executable does not automatically belong in root runtime.
+4. Runtime may perform startup, hosting, configuration, and dependency composition.
+5. Runtime must not own feature business logic.
+6. Runtime must not directly access another module's persistence.
+7. Runtime must not bypass public module contracts.
+8. Shared runtime must not become a hidden business orchestration layer.
+9. Modules must not depend on root-level runtime.
+10. Runtime-specific behavior that belongs to one module should remain inside that module.
+11. Reusable capability logic discovered inside runtime should normally move into an appropriate module.
+12. Runtime may know public contracts for composition and hosting, but must not use them as a substitute for business orchestration.
+
+---
+
+# Composition Root
+
+Composition belongs to the runtime that owns the execution context.
+
+For a local module runtime:
+
+```text
+orders/
+  runtime/
+    Main.java
+    ModuleRegistry.java
+```
+
+For shared runtime:
+
+```text
+runtime/
+  api/
+    Main.java
+    ModuleRegistry.java
+```
+
+The composition root may:
+
+* instantiate module implementations
+* connect public module contracts
+* configure technical dependencies
+* register adapters
+* configure framework runtime behavior
+* select implementations
+
+It must not contain:
+
+* business rules
+* workflow decisions
+* domain logic
+* cross-module business orchestration
+
+Allowed:
+
+```java
+Orders orders = new OrdersService(...);
+Payments payments = new PaymentsService(...);
+
+Checkout checkout =
+    new CheckoutService(orders, payments);
+```
+
+Not allowed:
+
+```java
+payments.authorize(...);
+orders.create(...);
+notifications.send(...);
+```
+
+as part of composition logic.
+
+Core rule:
+
+> Composition connects capabilities.
+
+> It does not run the business workflow.
+
+Framework dependency injection may perform physical wiring.
+
+The architectural requirement is ownership and dependency direction, not manual construction of every object.
 
 ---
 
@@ -435,7 +1052,7 @@ Checkout
   └─ Orders
 ```
 
-An orchestrating module may call multiple modules through their public root contracts.
+An orchestrating module may call multiple modules through their public contracts.
 
 Example:
 
@@ -446,11 +1063,13 @@ class CheckoutService implements Checkout {
     private final PaymentAuthorization payments;
     private final OrderCreation orders;
 
-    // orchestration
+    // workflow orchestration
 }
 ```
 
-The orchestrating module coordinates the workflow but does not own participating modules' business state.
+The orchestrator coordinates the workflow.
+
+It does not gain ownership of participating modules' business state.
 
 ---
 
@@ -458,16 +1077,16 @@ The orchestrating module coordinates the workflow but does not own participating
 
 1. Business orchestration must live inside a feature or orchestration module.
 2. The module that owns the business outcome owns the orchestration.
-3. Cross-module calls must use public module-root contracts.
-4. Composition root performs wiring only and must never contain business orchestration.
+3. Cross-module calls must use public module contracts.
+4. Runtime performs composition only and must not become the orchestrator.
 5. Do not create orchestration modules merely to make dependency graphs look cleaner.
 6. Create a dedicated orchestration module when the workflow itself represents a meaningful business capability.
 7. High cross-module dependency fan-out is an architectural review signal, not automatically a violation.
 8. A module must never directly access another module's persistence to implement orchestration.
 9. An orchestration module coordinates behavior but does not gain ownership of participating modules' data.
-10. A workflow module may depend on several feature contracts when that dependency reflects genuine business coordination.
+10. Workflow state may belong to the orchestrating module when required.
 
-Examples of legitimate orchestration capabilities may include:
+Examples of legitimate workflow capabilities may include:
 
 ```text
 Checkout
@@ -477,26 +1096,18 @@ Settlement
 SubscriptionRenewal
 ```
 
-A name such as:
-
-```text
-OrderCoordinatorManager
-```
-
-may indicate that ownership is unclear and should be reviewed.
-
 ---
 
 # Public and Internal Events
 
-Events are divided into two categories:
+Events are divided into:
 
 ```text
 Public integration events
 Internal domain events
 ```
 
-Public integration events are part of the module's public API.
+Public integration events are part of the owning module's public API.
 
 Internal domain events remain private implementation details.
 
@@ -516,16 +1127,16 @@ orders/
 
 # Event Rules
 
-1. Cross-module events must be explicitly declared as part of the module root API.
+1. Cross-module events must be intentionally public.
 2. Internal domain events must never be consumed outside the owning module.
 3. Public events represent facts that have already occurred.
 4. Public events should not be commands disguised as events.
-5. Events must not be introduced solely to hide cyclic dependencies.
-6. Use synchronous public contracts when the caller requires an immediate result.
-7. Use public events when other modules may react independently to a completed business fact.
-8. Public events are part of the module's compatibility surface.
-9. Event payloads should contain the minimum information required by consumers.
-10. Consumers should not rely on internal module lifecycle details that were never intentionally published.
+5. Events must not be introduced merely to hide cyclic dependencies.
+6. Use synchronous contracts when the caller requires an immediate result.
+7. Use public events when other modules may react independently to a completed fact.
+8. Public events form part of the module's compatibility surface.
+9. Event payloads should contain only the information deliberately required by consumers.
+10. Generic event transport may be shared, but event meaning remains owned by the publishing business module.
 
 Prefer:
 
@@ -545,15 +1156,12 @@ NotifyCustomer
 CreateShipment
 ```
 
-The first group represents facts.
-
-The second group represents commands.
-
-A useful mental distinction is:
+Useful mental distinction:
 
 ```text
 Contract call = do something / give me a result
-Event         = something has happened
+
+Event = something has happened
 ```
 
 ---
@@ -562,33 +1170,28 @@ Event         = something has happened
 
 Each module exclusively owns its business data.
 
-Only the owning module may mutate that data.
-
 Example:
 
 ```text
-Orders     → owns order state
-Payments   → owns payment state
-Inventory  → owns inventory state
-Customers  → owns customer state
+Orders     → order state
+Payments   → payment state
+Inventory  → inventory state
+Customers  → customer state
 ```
 
-No other module may directly modify those tables, entities, repositories, or persistence structures.
+Only the owning module may directly mutate or query its internal persistence representation.
 
----
+No other module may directly access:
 
-# Data Ownership Rules
+```text
+tables
+entities
+repositories
+persistence managers
+internal database structures
+```
 
-1. A module owns and mutates its own persistent state.
-2. Other modules interact with that state only through public contracts or public events.
-3. No module may directly use another module's repository.
-4. No module may directly update another module's database representation.
-5. Internal persistence structure may change without requiring consumers to change.
-6. Shared DTOs do not imply shared ownership.
-7. Read access must also respect module boundaries.
-8. A module must not query another module's tables directly merely because they live in the same database.
-9. Data ownership is logical ownership, not merely physical database placement.
-10. If multiple modules require the same business information, the owning module remains authoritative.
+owned by another module.
 
 Core rule:
 
@@ -596,11 +1199,26 @@ Core rule:
 
 ---
 
+# Data Ownership Rules
+
+1. A module owns and mutates its own persistent state.
+2. Other modules interact with that state through public contracts or public events.
+3. No module may directly use another module's repository.
+4. No module may directly modify another module's database representation.
+5. Read access must also respect module boundaries.
+6. Internal persistence structures may change without requiring consumers to change.
+7. Shared DTOs do not imply shared data ownership.
+8. A module must not query another module's tables directly merely because they live in the same physical database.
+9. Data ownership is logical ownership, not physical storage placement.
+10. If multiple modules require the same business information, the owning module remains authoritative.
+
+---
+
 # Transactions
 
 Each module owns its own local transaction boundaries.
 
-There is no assumed global transaction spanning multiple modules.
+There is no assumed global transaction across several modules.
 
 Example:
 
@@ -614,7 +1232,7 @@ Payments.authorize()   → Payments transaction
 Orders.create()        → Orders transaction
 ```
 
-The cross-module workflow must not assume that all operations can be atomically rolled back together.
+The cross-module workflow must not assume that all operations can be rolled back atomically together.
 
 ---
 
@@ -626,10 +1244,10 @@ The cross-module workflow must not assume that all operations can be atomically 
 4. Cross-module orchestration must not assume global atomic rollback.
 5. Partial failure must be explicitly considered where correctness requires it.
 6. Recovery may use compensation, retry, idempotency, resumable workflow state, or eventual consistency.
-7. External systems are never assumed to participate atomically in a module transaction.
+7. External systems are never assumed to participate atomically in a local module transaction.
 8. Persistence code must never cross module ownership boundaries to create a larger transaction.
-9. A module must leave its own state consistent when its public operation completes.
-10. Cross-module consistency is a workflow concern, not a shared database transaction concern.
+9. A module should leave its own state consistent when its public operation completes.
+10. Cross-module consistency is a workflow concern rather than a shared database transaction concern.
 
 Core rule:
 
@@ -641,7 +1259,7 @@ Core rule:
 
 # Workflow State
 
-An orchestration module may own persistence for the workflow itself.
+An orchestration module may persist workflow-specific state.
 
 Example:
 
@@ -657,7 +1275,7 @@ checkout/
       CheckoutWorkflowRepository.java
 ```
 
-Workflow state may contain information such as:
+Workflow state may contain:
 
 ```text
 workflowId
@@ -676,13 +1294,13 @@ lastCompletedStep
 1. An orchestration module may persist state required for coordination.
 2. Workflow state may support recovery, retry, compensation, and resumability.
 3. Workflow persistence must not become the authoritative store for another module's business data.
-4. Orchestration modules must not duplicate entire domain models from participating modules.
-5. References such as identifiers and workflow-specific snapshots are allowed where required for coordination.
-6. Workflow state should describe progress through a process rather than reproduce participating modules' state.
+4. Orchestration modules must not duplicate entire participating domain models.
+5. Identifiers and workflow-specific snapshots are acceptable where coordination requires them.
+6. Workflow state should describe process progress rather than reproduce feature state.
 7. Long-running workflows should be recoverable without requiring global transactions.
 8. Compensation behavior should be explicit when operations cannot simply be retried.
 
-The distinction is:
+Core distinction:
 
 > Feature modules own business state.
 
@@ -692,7 +1310,7 @@ The distinction is:
 
 # Module Dependency Graph
 
-Direct cyclic module dependencies are forbidden.
+The module dependency graph must remain acyclic.
 
 Not allowed:
 
@@ -709,117 +1327,60 @@ Customers → Pricing
 Pricing → Orders
 ```
 
-The module contract dependency graph should remain acyclic.
-
----
-
-# Cycle Rules
-
-1. Direct cyclic contract dependencies between modules are forbidden.
-2. If two modules require mutual coordination, determine which module owns the business outcome.
-3. Move multi-module coordination into the owning feature or an appropriate orchestration module.
-4. Public events may support legitimate reactions but must not be used merely to disguise a dependency cycle.
-5. Repeated dependency cycles are evidence that module boundaries or ownership may need reconsideration.
-6. The public module dependency graph should be understandable without inspecting internal implementation.
-7. Acyclicity applies to module relationships, not merely package compiler rules.
-
-Instead of:
-
-```text
-Orders → Payments
-Payments → Orders
-```
-
-prefer:
+Instead:
 
 ```text
 Checkout → Orders
 Checkout → Payments
 ```
 
-where Checkout owns the workflow.
+may be appropriate when Checkout owns the multi-module workflow.
+
+Acyclicity applies to all modules, including shared technical capability modules.
 
 ---
 
-# Composition Root
+# Cycle Rules
 
-Only the composition root may instantiate or wire implementations across module boundaries.
-
-Example:
-
-```text
-infrastructure/
-  modules/
-    ModuleRegistry.java
-```
-
-The composition root may:
-
-* instantiate module implementations
-* connect public module contracts
-* configure technical dependencies
-* register adapters
-* configure runtime infrastructure
-
-It must not contain:
-
-* business rules
-* workflow logic
-* domain decisions
-* cross-module business orchestration
-
-Allowed:
-
-```java
-Orders orders = new OrdersService(...);
-Payments payments = new PaymentsService(...);
-
-Checkout checkout =
-    new CheckoutService(orders, payments);
-```
-
-Not allowed:
-
-```java
-payments.authorize(...);
-orders.create(...);
-notifications.send(...);
-```
-
-inside the composition root.
-
-Core rule:
-
-> The composition root connects the system.
-
-> It does not run the business.
+1. Cyclic module dependencies are forbidden.
+2. If modules require mutual coordination, determine who owns the resulting business outcome.
+3. Move coordination into the appropriate owning feature or workflow module.
+4. Public events may support legitimate reactions but must not merely disguise a dependency cycle.
+5. Repeated cycles are evidence that module ownership or boundaries may need reconsideration.
+6. The module dependency graph should be understandable without inspecting implementation details.
+7. Root runtime must not be used as an intermediary to hide cycles.
 
 ---
 
 # Architecture Enforcement
 
-Structural architecture rules should be automated where practical.
+Structural architecture rules should be automated where useful.
 
-Semantic design decisions remain a code-review responsibility.
+Semantic architectural judgment should remain a code-review responsibility.
+
+The architecture should not become difficult to work with merely because every possible rule has been automated.
+
+Enforce boundaries that protect meaningful ownership.
+
+Avoid enforcement for enforcement's sake.
 
 ---
 
 # Hard Structural Rules
 
-These are candidates for automated enforcement:
+Candidates for automated enforcement include:
 
-1. Cross-module imports may target only public root contracts and public root events.
-2. Imports of another module's `services` package are forbidden.
+1. Cross-module imports may target only intentionally public module contracts, public events, and shared boundary types.
+2. Imports of another module's internal services are forbidden.
 3. Imports of another module's domain internals are forbidden.
-4. Imports of another module's persistence package are forbidden.
+4. Imports of another module's persistence internals are forbidden.
 5. Persistence entities must not cross module boundaries.
 6. Internal domain events must remain module-private.
-7. Infrastructure must not depend on feature-module internals.
-8. Direct cyclic module dependencies are forbidden.
-9. Module-owned DTOs should remain under the correct `shared/<module>/` ownership path.
-10. Cross-module persistence access should fail architectural checks where it can be detected.
-
-These rules may be enforced using tools such as architectural tests where appropriate.
+7. Cyclic module dependencies are forbidden.
+8. Shared business DTO ownership should remain visible under `shared/<module>/`.
+9. Cross-module persistence access should be rejected where detectable.
+10. Module code must not depend on shared root runtime.
+11. Shared runtime must not bypass module boundaries.
 
 For Java, tools such as ArchUnit may be suitable.
 
@@ -827,88 +1388,176 @@ For Java, tools such as ArchUnit may be suitable.
 
 # Semantic Review Rules
 
-The following should normally remain review concerns:
+The following normally remain review concerns:
 
-* whether a module owns the correct business capability
-* whether an orchestration module is justified
+* whether a module owns the correct capability
+* whether something has been promoted outward too early
+* whether module bleeding has occurred
 * whether a public contract is too broad
 * whether contracts have been split too aggressively
+* whether a DTO genuinely needs to be shared
 * whether a shared DTO has become a shared domain model
 * whether DTO ownership is correct
+* whether runtime is local or genuinely shared
+* whether a technical capability truly deserves extraction
 * whether an event represents a fact or a hidden command
 * whether one module has excessive dependency fan-out
-* whether workflow state has started duplicating domain ownership
+* whether workflow state is duplicating domain ownership
 * whether abstractions provide real architectural value
-* whether a workflow belongs in an existing module or deserves its own capability
-* whether module boundaries still reflect the business after the system evolves
+* whether internal structure has become too ceremonial
+* whether the filesystem still makes ownership easy to understand
 
-These require business and architectural context and should not be reduced blindly to mechanical rules.
+These decisions require context.
+
+They should not be blindly reduced to mechanical rules.
 
 ---
 
 # Refactor Workflow
 
-1. Identify business capabilities and proposed module boundaries.
-2. Map existing cross-module dependencies.
-3. Identify current ownership violations.
-4. Identify cross-module persistence access.
-5. Define public module-root contracts.
-6. Split overly broad contracts by cohesive business capability.
-7. Define module-owned shared DTO boundary types under `shared/<module>/`.
-8. Move implementations behind module contracts.
-9. Move domain logic into the owning feature module.
-10. Move each module's persistence into its own `services/persistence`.
-11. Remove cross-module persistence access.
-12. Extract genuinely shared technical capabilities into `infrastructure`.
-13. Move cross-module wiring into the composition root.
-14. Identify multi-module workflows.
-15. Assign each workflow to the feature that owns the business outcome or create an explicit orchestration module.
-16. Identify legitimate public integration events.
-17. Separate public events from internal domain events.
-18. Identify cyclic module dependencies and eliminate them.
-19. Define local transaction behavior for each module.
-20. Define recovery behavior for cross-module workflows.
-21. Add workflow persistence where resumability or compensation requires it.
-22. Add architecture enforcement where useful.
-23. Remove unnecessary abstractions and architectural ceremony.
-24. Run build, architecture tests, unit tests, and integration tests.
-25. Re-evaluate module ownership after the refactor rather than assuming the initial boundaries were correct.
+1. Identify business capabilities and current ownership.
+2. Identify module boundaries.
+3. Keep existing behavior local unless there is a real reason to move it outward.
+4. Map cross-module dependencies.
+5. Identify ownership violations.
+6. Identify module bleeding.
+7. Identify direct cross-module persistence access.
+8. Define public contracts only where other modules need behavior.
+9. Define shared boundary DTOs only where genuine cross-module data consumption exists.
+10. Keep non-shared DTOs inside their owning module.
+11. Move implementations behind public module contracts.
+12. Move business logic into the owning module.
+13. Keep module-specific persistence inside the module.
+14. Keep module-specific technical behavior inside the module.
+15. Extract a reusable technical module only when genuine shared capability exists.
+16. Keep local runtime inside its owning module.
+17. Promote runtime to root level only when runtime responsibility spans modules.
+18. Identify multi-module workflows.
+19. Assign workflows to the feature that owns the outcome or create a meaningful workflow module.
+20. Identify legitimate public integration events.
+21. Separate public events from internal domain events.
+22. Eliminate cyclic module dependencies.
+23. Define local transaction behavior.
+24. Define workflow recovery behavior where partial failure matters.
+25. Add workflow persistence where resumability or compensation requires it.
+26. Add structural enforcement where it protects meaningful boundaries.
+27. Remove unnecessary abstractions, folders, layers, and ceremony.
+28. Run build, architecture tests, unit tests, and integration tests.
+29. Re-evaluate the resulting structure based on developer readability and actual ownership.
 
 ---
 
 # Decision Heuristics
 
+## Local First
+
+If only one module needs something:
+
+> Keep it inside that module.
+
+If another module genuinely needs it:
+
+> Consider promoting it outward.
+
+If something might theoretically be reused later:
+
+> Keep it local until that reuse actually exists.
+
+When uncertain:
+
+> Keep it local.
+
+---
+
+## Shared
+
+If a DTO is consumed only by its owning module:
+
+> Keep it inside that module.
+
+If another module legitimately consumes it:
+
+> It may move to `shared/<owner>/`.
+
+If nobody can identify the DTO owner:
+
+> Reconsider the DTO or module boundary.
+
+If the type contains business invariants or behavior:
+
+> It is probably not a DTO and belongs in the owning module's domain.
+
+---
+
+## Runtime
+
+If runtime behavior belongs to one module:
+
+> Keep runtime inside that module.
+
+If a worker is standalone but belongs to Orders:
+
+```text
+orders/runtime/worker/
+```
+
+is correct.
+
+If runtime responsibility genuinely spans several modules:
+
+> A root-level runtime may be appropriate.
+
+Core rule:
+
+> Standalone does not mean global.
+
+---
+
+## Technical Behavior
+
+If technical code understands one feature:
+
+> Keep it inside that feature module.
+
+If only Orders uses Kafka:
+
+> Kafka integration remains inside Orders.
+
+If several modules genuinely require a cohesive generic messaging capability:
+
+> Consider extracting a Messaging module.
+
+Do not create technical modules merely because code uses a particular technology.
+
+---
+
 ## Ownership
 
-If code expresses a business capability:
+If code expresses or implements a business capability:
 
 > Keep it inside the owning feature module.
 
-If code is technical and reusable without understanding any business module:
-
-> Place it in infrastructure.
-
 If another module needs behavior:
 
-> Expose it through a public root contract.
+> Expose it through a public contract.
 
 If another module needs data:
 
-> Expose boundary data through the owning module's contract rather than sharing internal models.
+> Expose intentional boundary data without sharing internal domain representations.
 
-If multiple modules need the same data:
+If multiple modules need the same business information:
 
-> That does not remove ownership from the source module.
+> Ownership remains with the source module.
 
 ---
 
 ## Contracts
 
-If a public contract becomes too broad:
+If a public contract becomes conceptually broad:
 
-> Split it by cohesive business capability.
+> Split it by cohesive capability.
 
-Do not split simply because the file has become large.
+Do not split simply because a file becomes large.
 
 Prefer:
 
@@ -918,41 +1567,7 @@ OrderQueries
 OrderAdministration
 ```
 
-over a separate interface for every operation.
-
-A contract should reflect a stable business capability, not a technical implementation grouping.
-
----
-
-## DTOs
-
-If a type exists only to move data across boundaries:
-
-> A shared DTO may be appropriate.
-
-If the DTO belongs to Customers:
-
-```text
-shared/customers/
-```
-
-If it belongs to Payments:
-
-```text
-shared/payments/
-```
-
-If nobody can identify the owner:
-
-> Reconsider the DTO or module boundary.
-
-If the type contains business invariants or behavior:
-
-> It is probably not a DTO and belongs inside the owning module's domain.
-
-If a consumer begins adding business behavior directly to another module's DTO:
-
-> Map it into a local model instead.
+over an interface for every operation.
 
 ---
 
@@ -960,37 +1575,37 @@ If a consumer begins adding business behavior directly to another module's DTO:
 
 If a workflow clearly produces an outcome owned by one module:
 
-> That module should orchestrate the workflow.
+> That module should orchestrate it.
 
 If the workflow itself represents an independent business capability:
 
-> Create an orchestration module.
+> Create a workflow module.
 
-If orchestration exists only to reduce visible dependencies:
+If orchestration exists only to make dependency arrows look cleaner:
 
 > Reconsider the design.
 
-If an orchestration module begins owning participating modules' state:
+If orchestration appears in root runtime:
 
-> The boundary has been violated.
+> Move it into the module that owns the business outcome.
 
 ---
 
 ## Events
 
-If another module must immediately return a result:
+If another module requires an immediate result:
 
-> Use a synchronous root contract.
+> Use a synchronous contract.
 
-If other modules should independently react to something that already happened:
+If other modules may independently react to a completed fact:
 
 > Publish a public integration event.
 
-If an event says what another module should do:
+If an event describes what another module should do:
 
-> It is probably a command and should be reconsidered.
+> It is probably a command disguised as an event.
 
-If an event exists only to avoid showing a direct dependency:
+If an event exists only to hide a cycle:
 
 > Reconsider the module relationship.
 
@@ -998,7 +1613,7 @@ If an event exists only to avoid showing a direct dependency:
 
 ## Transactions
 
-If an operation changes only one module's state:
+If an operation changes one module's state:
 
 > That module owns the transaction.
 
@@ -1008,27 +1623,43 @@ If a workflow spans multiple modules:
 
 If partial failure matters:
 
-> The orchestrator must define retry, compensation, idempotency, resumability, or another explicit recovery strategy.
+> Define retry, compensation, idempotency, resumability, or another explicit recovery strategy.
 
-If a design requires direct rollback across several module databases or states:
-
-> Reconsider the ownership model rather than creating an implicit global transaction.
+Do not create a global transaction by crossing module persistence boundaries.
 
 ---
 
 ## Persistence
 
-If code accesses feature-owned business data:
+If persistence code understands feature-owned business data:
 
-> It belongs to the owning module.
-
-If code provides technical persistence infrastructure without knowing business semantics:
-
-> It may belong in infrastructure.
+> It belongs inside the owning feature module.
 
 If another module needs read access:
 
-> Use the owning module's public API instead of querying its persistence directly.
+> Use the owning module's public API.
+
+Do not query another module's tables simply because the physical database is shared.
+
+---
+
+## Structure
+
+If a folder has no meaningful responsibility:
+
+> Do not create it.
+
+If an internal structure adds clarity:
+
+> Use it.
+
+If structure exists only because the architectural example shows it:
+
+> Remove it.
+
+Core rule:
+
+> Architecture should organize complexity, not manufacture it.
 
 ---
 
@@ -1041,7 +1672,7 @@ Create an abstraction only when it:
 * clarifies ownership
 * reduces meaningful complexity
 
-Do not create abstractions merely to satisfy architectural convention.
+Do not create abstractions merely to satisfy convention.
 
 ---
 
@@ -1052,11 +1683,14 @@ Do not create abstractions merely to satisfy architectural convention.
 Use:
 
 * packages as module boundaries
-* public contracts in module roots
-* module-owned DTO packages under `shared/<module>/`
+* public contracts near module roots
+* module-owned shared DTO packages where required
 * package-private or internal implementations where practical
-* registry or dependency-injection composition root
-* architecture tests such as ArchUnit where appropriate
+* local runtime inside modules where ownership is local
+* root runtime only for shared execution contexts
+* architecture tests such as ArchUnit where useful
+
+---
 
 ## C#
 
@@ -1064,32 +1698,43 @@ Use:
 
 * namespaces or projects as module boundaries
 * public contract namespaces
-* module-owned shared contract namespaces
 * internal implementations
 * dependency injection for composition
+* shared contract namespaces only where cross-module use exists
+* local executable/runtime projects or folders where appropriate
 * architecture tests where useful
+
+Do not require separate Infrastructure projects merely because Clean Architecture commonly uses them.
+
+---
 
 ## Node / NestJS
 
 Use:
 
 * feature modules
-* exported providers or contracts
-* strict module exports
+* exported providers or contracts only where cross-module access is required
 * private internal providers
 * explicit public events
-* module-owned DTO or contract locations
+* DTO sharing only where real consumers exist
+* module-local bootstrap/runtime where execution belongs to one module
+* shared runtime only when several modules are composed into the same execution context
+
+Do not create global provider modules simply to collect technical code.
+
+---
 
 ## Go
 
 Use:
 
 * package boundaries
-* exported module APIs
+* exported APIs only when cross-package consumption is intentional
 * internal packages
-* explicit dependency composition
-* narrow capability-oriented interfaces
-* module-owned boundary structs
+* explicit composition
+* local command/runtime ownership where possible
+* shared boundary structs only when genuinely shared
+* narrow capability-oriented interfaces where useful
 
 ---
 
@@ -1097,10 +1742,11 @@ Use:
 
 This architecture intentionally favors:
 
+* local-first ownership
 * strong feature ownership
 * explicit module boundaries
 * hidden implementation details
-* small and understandable public surfaces
+* understandable public surfaces
 * module-owned persistence
 * explicit data ownership
 * DTO ownership
@@ -1108,49 +1754,92 @@ This architecture intentionally favors:
 * acyclic dependencies
 * explicit orchestration
 * recoverable workflows
-* feature-oriented locality
+* developer-friendly filesystem navigation
 * pragmatic internal architecture
+* progressive structure
 * architectural clarity over architectural purity
 * scalability of understanding as the codebase grows
 
 The architecture intentionally avoids:
 
 * global horizontal business layers
+* global infrastructure layers
+* premature root-level shared structures
+* premature root-level runtime structures
+* speculative technical modules
 * shared persistence models
 * ownerless business DTOs
 * cross-module repository access
 * direct cross-module table access
 * giant universal service interfaces
 * interface-per-method ceremony
-* hidden business orchestration in infrastructure
+* hidden business orchestration in runtime
 * global transactional assumptions
 * uncontrolled event coupling
 * circular module dependencies
 * abstraction for abstraction's sake
-* `shared` or `common` folders becoming architectural dumping grounds
+* `shared`, `common`, `utils`, or similar folders becoming dumping grounds
+* moving code outward merely because it uses technology
+* structure created only to satisfy the architecture itself
+* module bleeding
 
 ---
 
 # Core Mental Model
 
-Think of each module as a small application inside the larger application.
+Think of each module as a small application inside the larger system.
 
-Each feature module:
+A module:
 
 ```text
 owns its behavior
 owns its domain
 owns its data
+owns its persistence
 owns its transactions
-hides its implementation
-publishes explicit capabilities
-publishes explicit integration events
-owns its public DTO semantics
+owns its local runtime
+owns its local technical implementation
+hides its internals
+publishes only what others genuinely need
 ```
 
-Other modules may know only what the module deliberately exposes.
+By default:
 
-For workflows spanning multiple modules:
+```text
+keep it local
+```
+
+When a responsibility genuinely crosses module boundaries:
+
+```text
+promote it intentionally
+```
+
+For shared boundary data:
+
+```text
+local model
+    ↓ cross-module need
+shared/<owner>/
+```
+
+For runtime:
+
+```text
+module/runtime
+    ↓ shared execution responsibility
+root/runtime
+```
+
+For technical capabilities:
+
+```text
+module-local implementation
+    ↓ genuine reusable capability
+shared technical module
+```
+
+For workflows:
 
 ```text
 Feature modules own business state.
@@ -1161,922 +1850,39 @@ Public contracts express synchronous capabilities.
 
 Public events express completed facts.
 
-Shared DTOs express public data contracts while retaining module ownership.
+Shared DTOs express intentionally shared boundary data.
 
-The composition root only connects the system.
+Runtime follows ownership.
 ```
 
-The primary architectural objective is not strict adherence to a named pattern.
+The architecture does not require maximum isolation, maximum abstraction, or maximum folder depth.
 
-The objective is to produce a system where:
+The primary objective is to produce a system where:
 
 * changes remain local
-* module ownership is clear
-* dependencies are visible
+* ownership remains obvious
+* dependencies remain visible
 * implementation details remain replaceable
 * business capabilities remain understandable
+* shared concepts are intentionally shared
+* runtime ownership remains clear
 * cross-module workflows remain explicit
 * data ownership remains enforceable
-* DTO ownership remains visible
-* failures can be recovered from deliberately
-* architectural boundaries survive growth
-* developers can reason about one area without loading the entire system into their heads
-# Modular Hybrid Architecture Skill — v1.1
+* failures can be recovered deliberately
+* developers can understand the filesystem without first studying an architecture diagram
+* structure grows because the system needs it
+* architectural boundaries survive growth without becoming a burden
 
-## Purpose
+The shortest form of the architecture is:
 
-Use this skill to design or refactor applications into a modular monolith that combines:
+> **Local first.**
 
-* feature-module ownership
-* explicit public module contracts
-* hidden module implementation
-* internal clean architecture principles where they add value
-* pragmatic service-oriented orchestration without excessive layering
-* strong data ownership and explicit workflow coordination
+> **Own what you use.**
 
-The architecture prioritizes **module boundaries, ownership, locality, and controlled dependencies** over architectural ceremony.
+> **Share only what is actually shared.**
 
----
+> **Runtime follows ownership.**
 
-## Core Principles
+> **Promote outward only when responsibility crosses a module boundary.**
 
-1. Organize by feature/domain capability, not horizontal technical layers.
-2. Each module owns its business logic, domain models, persistence, and data.
-3. A module root represents the module's complete public API surface.
-4. Other modules may depend only on public contracts and public events located in the target module root.
-5. No module may import another module's internal implementation.
-6. Persistence entities and internal domain models must never leak outside the owning module.
-7. Shared DTOs may be used as boundary/transport types, but must not become a shared domain model.
-8. Infrastructure contains reusable technical capabilities only and must not contain feature business logic.
-9. Cross-module wiring happens only in the composition root.
-10. Business orchestration never belongs in the composition root or infrastructure.
-11. Direct cyclic dependencies between modules are forbidden.
-12. Each module owns its own data consistency and local transactions.
-13. Cross-module workflows must explicitly handle partial failure where required.
-
----
-
-# Module Public API
-
-The module root represents the complete public API surface of the module.
-
-A module may expose multiple public contracts when they represent distinct, cohesive business capabilities.
-
-Example:
-
-```text
-orders/
-  Orders.java
-  OrderQueries.java
-  OrderAdministration.java
-  OrderEvents.java
-
-  endpoint/
-
-  services/
-    OrdersService.java
-    OrderQueriesService.java
-    OrderAdministrationService.java
-
-    domain/
-
-    persistence/
-```
-
-Other modules may import:
-
-```java
-import orders.Orders;
-import orders.OrderQueries;
-```
-
-They may never import:
-
-```java
-import orders.services.OrdersService;
-import orders.services.persistence.OrderRepository;
-import orders.services.domain.Order;
-```
-
----
-
-## Public Contract Rules
-
-1. Module-root contracts are the only synchronous cross-module entry points.
-2. Public contracts should represent cohesive business capabilities.
-3. Split large contracts when they become conceptually broad.
-4. Do not create one interface per individual method or use case.
-5. Do not expose repositories, mappers, factories, validators, managers, or implementation abstractions through the module root.
-6. Public contracts should expose behavior rather than internal implementation details.
-7. Public contracts must never expose persistence entities or internal domain models.
-8. Public contract implementations live inside the module's `services` package.
-
-Prefer:
-
-```text
-Orders
-OrderQueries
-OrderAdministration
-```
-
-over:
-
-```text
-CreateOrder
-UpdateOrder
-DeleteOrder
-GetOrder
-FindOrder
-```
-
-unless those concepts genuinely represent stable business capabilities.
-
----
-
-# Shared DTOs
-
-Shared DTOs are allowed outside feature modules.
-
-Example:
-
-```text
-shared/
-  CustomerDto.java
-  OrderDto.java
-  MoneyDto.java
-```
-
-Shared DTOs exist only as boundary or transport representations.
-
-They must not become the application's shared domain model.
-
-A module may internally maintain separate representations:
-
-```text
-CustomerDto
-    ↕
-
-Customer domain model
-    ↕
-
-CustomerEntity
-```
-
-## Shared DTO Rules
-
-1. Shared DTOs may be used by public module contracts.
-2. Shared DTOs may cross module boundaries.
-3. Shared DTOs must contain data, not module-specific business behavior.
-4. Shared DTOs must not replace internal domain models where business invariants or domain behavior exist.
-5. Persistence entities must never be placed in shared.
-6. A shared DTO must not give another module ownership over the originating module's state.
-
----
-
-# Standard Module Layout
-
-```text
-<module>/
-
-  <PublicCapability>.java
-  <PublicCapability>.java
-  <PublicEvents>.java
-
-  endpoint/
-
-  services/
-    <CapabilityImplementation>.java
-
-    domain/
-      models/
-      rules/
-      events/
-
-    persistence/
-      entities/
-      repositories/
-      managers/
-      mappers/
-```
-
-The root should remain intentionally small.
-
-Every type placed directly in the module root must represent something another module is legitimately allowed to consume.
-
----
-
-# Infrastructure Layout
-
-```text
-infrastructure/
-  logging/
-  persistence/
-  annotations/
-  messaging/
-  modules/
-```
-
-Infrastructure may provide technical capabilities such as:
-
-* database configuration
-* logging
-* messaging
-* serialization
-* HTTP infrastructure
-* framework configuration
-* dependency wiring
-
-Infrastructure must not contain feature-specific business behavior.
-
----
-
-# Internal Module Architecture
-
-Each module may internally use clean architecture principles while remaining pragmatic and lightweight.
-
-The module boundary is more important than strict internal layering.
-
-Inside the module:
-
-* domain logic should remain independent from framework and persistence concerns
-* persistence should adapt data storage to the module's needs
-* services coordinate internal domain logic
-* endpoints adapt external requests into module operations
-
-Avoid:
-
-* unnecessary abstraction layers
-* command-handler explosion
-* repository interfaces with no meaningful boundary value
-* one-class-per-operation ceremony
-* abstraction introduced only to satisfy a pattern
-
-Prefer simple coordination where the dependency direction and ownership remain clear.
-
----
-
-# Internal Dependency Rules
-
-1. `endpoint` may call internal services or public-contract implementations.
-2. Internal services may depend on domain logic and module-private abstractions.
-3. Domain logic must not depend on endpoint, persistence, frameworks, infrastructure, or another module's internals.
-4. Persistence may depend on internal domain representations where mapping is required.
-5. Persistence entities remain private to the owning module.
-6. Cross-module calls may only target public module-root contracts.
-7. Infrastructure may provide technical capabilities but must not depend on feature internals.
-8. Public contract implementations may coordinate internal services and domain behavior.
-
-Conceptually:
-
-```text
-Endpoint
-   ↓
-Application / Facade Services
-   ↓
-Domain
-
-Persistence adapters
-   ↓
-Domain
-```
-
-Persistence must not become a dependency of the domain.
-
----
-
-# Cross-Module Orchestration
-
-Cross-module orchestration belongs to the module that owns the business outcome.
-
-Example:
-
-```text
-Checkout
-  ├─ Customers
-  ├─ Inventory
-  ├─ Payments
-  └─ Orders
-```
-
-An orchestrating module may call multiple modules through their public root contracts.
-
-Example:
-
-```java
-class CheckoutService implements Checkout {
-
-    private final InventoryReservation inventory;
-    private final PaymentAuthorization payments;
-    private final OrderCreation orders;
-
-    // orchestration
-}
-```
-
-## Orchestration Rules
-
-1. Business orchestration must live inside a feature or orchestration module.
-2. The module that owns the business outcome owns the orchestration.
-3. Cross-module calls must use public module-root contracts.
-4. Composition root performs wiring only and must never contain business orchestration.
-5. Do not create orchestration modules merely to make dependency graphs look cleaner.
-6. Create a dedicated orchestration module when the workflow itself represents a meaningful business capability.
-7. High cross-module dependency fan-out is an architectural review signal, not automatically a violation.
-8. A module must never directly access another module's persistence to implement orchestration.
-
-Examples of legitimate orchestration capabilities may include:
-
-```text
-Checkout
-CustomerOnboarding
-Fulfillment
-Settlement
-```
-
-A name such as:
-
-```text
-OrderCoordinatorManager
-```
-
-may indicate that ownership is unclear and should be reviewed.
-
----
-
-# Public and Internal Events
-
-Events are divided into two categories:
-
-```text
-Public integration events
-Internal domain events
-```
-
-Public integration events are part of the module's public API.
-
-Internal domain events remain private implementation details.
-
-Example:
-
-```text
-orders/
-  OrderEvents.java
-
-  services/
-    domain/
-      events/
-        InternalOrderValidated.java
-```
-
-## Event Rules
-
-1. Cross-module events must be explicitly declared as part of the module root API.
-2. Internal domain events must never be consumed outside the owning module.
-3. Public events represent facts that have already occurred.
-4. Public events should not be commands disguised as events.
-5. Events must not be introduced solely to hide cyclic dependencies.
-6. Use synchronous public contracts when the caller requires an immediate result.
-7. Use public events when other modules may react independently to a completed business fact.
-
-Prefer:
-
-```text
-OrderPlaced
-PaymentAuthorized
-CustomerRegistered
-```
-
-over:
-
-```text
-SendInvoice
-ReserveInventory
-NotifyCustomer
-```
-
-The first group represents facts.
-
-The second group represents commands.
-
----
-
-# Data Ownership
-
-Each module exclusively owns its data.
-
-Only the owning module may mutate that data.
-
-Example:
-
-```text
-Orders     → owns order state
-Payments   → owns payment state
-Inventory  → owns inventory state
-Customers  → owns customer state
-```
-
-No other module may directly modify those tables, entities, repositories, or persistence structures.
-
-## Data Ownership Rules
-
-1. A module owns and mutates its own persistent state.
-2. Other modules interact with that state only through public contracts or public events.
-3. No module may directly use another module's repository.
-4. No module may directly update another module's database representation.
-5. Internal persistence structure may change without requiring consumers to change.
-6. Shared DTOs do not imply shared ownership.
-
----
-
-# Transactions
-
-Each module owns its own local transaction boundaries.
-
-There is no assumed global transaction spanning multiple modules.
-
-Example:
-
-```text
-Checkout
-   ↓
-Inventory.reserve()    → Inventory transaction
-   ↓
-Payments.authorize()   → Payments transaction
-   ↓
-Orders.create()        → Orders transaction
-```
-
-The cross-module workflow must not assume that all operations can be atomically rolled back together.
-
-## Transaction Rules
-
-1. Each module owns its own local transactions.
-2. A module transaction may mutate only data owned by that module.
-3. Cross-module workflows execute through public contracts.
-4. Cross-module orchestration must not assume global atomic rollback.
-5. Partial failure must be explicitly considered where correctness requires it.
-6. Recovery may use compensation, retry, idempotency, resumable workflow state, or eventual consistency.
-7. External systems are never assumed to participate atomically in a module transaction.
-8. Persistence code must never cross module ownership boundaries to create a larger transaction.
-
----
-
-# Workflow State
-
-An orchestration module may own persistence for the workflow itself.
-
-Example:
-
-```text
-checkout/
-  Checkout.java
-
-  services/
-    CheckoutService.java
-
-    persistence/
-      CheckoutWorkflowEntity.java
-      CheckoutWorkflowRepository.java
-```
-
-Workflow state may contain information such as:
-
-```text
-workflowId
-status
-currentStep
-inventoryReserved
-paymentAuthorized
-retryCount
-lastCompletedStep
-```
-
-## Workflow Persistence Rules
-
-1. An orchestration module may persist state required for coordination.
-2. Workflow state may support recovery, retry, compensation, and resumability.
-3. Workflow persistence must not become the authoritative store for another module's business data.
-4. Orchestration modules must not duplicate entire domain models from participating modules.
-5. References such as identifiers and workflow-specific snapshots are allowed where required for coordination.
-
-The distinction is:
-
-> Modules own business state.
-
-> Orchestration modules own workflow state.
-
----
-
-# Module Dependency Graph
-
-Direct cyclic module dependencies are forbidden.
-
-Not allowed:
-
-```text
-Orders → Payments
-Payments → Orders
-```
-
-Also not allowed:
-
-```text
-Orders → Customers
-Customers → Pricing
-Pricing → Orders
-```
-
-The module contract dependency graph should remain acyclic.
-
-## Cycle Rules
-
-1. Direct cyclic contract dependencies between modules are forbidden.
-2. If two modules require mutual coordination, determine which module owns the business outcome.
-3. Move multi-module coordination into the owning feature or an appropriate orchestration module.
-4. Public events may support legitimate reactions but must not be used merely to disguise a dependency cycle.
-5. Repeated dependency cycles are evidence that module boundaries or ownership may need reconsideration.
-
-Example:
-
-Instead of:
-
-```text
-Orders → Payments
-Payments → Orders
-```
-
-prefer:
-
-```text
-Checkout → Orders
-Checkout → Payments
-```
-
-where Checkout owns the workflow.
-
----
-
-# Composition Root
-
-Only the composition root may instantiate or wire implementations across module boundaries.
-
-Example:
-
-```text
-infrastructure/
-  modules/
-    ModuleRegistry.java
-```
-
-The composition root may:
-
-* instantiate module implementations
-* connect public module contracts
-* configure technical dependencies
-* register adapters
-* configure runtime infrastructure
-
-It must not contain:
-
-* business rules
-* workflow logic
-* domain decisions
-* cross-module business orchestration
-
-Example:
-
-Allowed:
-
-```java
-Orders orders = new OrdersService(...);
-Payments payments = new PaymentsService(...);
-
-Checkout checkout =
-    new CheckoutService(orders, payments);
-```
-
-Not allowed:
-
-```java
-payments.authorize(...);
-orders.create(...);
-notifications.send(...);
-```
-
-inside the composition root.
-
----
-
-# Architecture Enforcement
-
-Structural architecture rules should be automated where practical.
-
-Semantic design decisions remain a code-review responsibility.
-
-## Hard Structural Rules
-
-These are candidates for automated enforcement:
-
-1. Cross-module imports may target only public root contracts and public root events.
-2. Imports of another module's `services` package are forbidden.
-3. Imports of another module's domain internals are forbidden.
-4. Imports of another module's persistence package are forbidden.
-5. Persistence entities must not cross module boundaries.
-6. Internal domain events must remain module-private.
-7. Infrastructure must not depend on feature-module internals.
-8. Direct cyclic module dependencies are forbidden.
-
-These rules may be enforced using tools such as architectural tests where appropriate.
-
----
-
-## Semantic Review Rules
-
-The following should normally remain review concerns:
-
-* whether a module owns the correct business capability
-* whether an orchestration module is justified
-* whether a public contract is too broad
-* whether contracts have been split too aggressively
-* whether a shared DTO has become a shared domain model
-* whether an event represents a fact or a hidden command
-* whether one module has excessive dependency fan-out
-* whether workflow state has started duplicating domain ownership
-* whether abstractions provide real architectural value
-
-These require business and architectural context and should not be reduced blindly to mechanical rules.
-
----
-
-# Refactor Workflow
-
-1. Identify business capabilities and module boundaries.
-2. Map existing cross-module dependencies.
-3. Identify current ownership violations.
-4. Define public module-root contracts.
-5. Define shared DTO boundary types where required.
-6. Move implementations behind module contracts.
-7. Move domain logic into the owning feature module.
-8. Move each module's persistence into its own `services/persistence`.
-9. Remove cross-module persistence access.
-10. Extract genuinely shared technical capabilities into `infrastructure`.
-11. Move cross-module wiring into the composition root.
-12. Identify multi-module workflows.
-13. Assign each workflow to the feature that owns the business outcome or create an explicit orchestration module.
-14. Identify legitimate public integration events.
-15. Separate public events from internal domain events.
-16. Identify cyclic module dependencies and eliminate them.
-17. Define transaction and recovery behavior for cross-module workflows.
-18. Add architecture enforcement where useful.
-19. Remove unnecessary abstractions and architectural ceremony.
-20. Run build, architecture tests, unit tests, and integration tests.
-
----
-
-# Decision Heuristics
-
-## Ownership
-
-If code expresses a business capability:
-
-> Keep it inside the owning feature module.
-
-If code is technical and reusable without understanding any business module:
-
-> Place it in infrastructure.
-
-If another module needs behavior:
-
-> Expose it through a public root contract.
-
-If another module needs data:
-
-> Expose boundary data through the owning module's contract rather than sharing internal models.
-
----
-
-## Contracts
-
-If a public contract becomes too broad:
-
-> Split it by cohesive business capability.
-
-Do not split simply because the file has become large.
-
-Prefer:
-
-```text
-Orders
-OrderQueries
-OrderAdministration
-```
-
-over a separate interface for every operation.
-
----
-
-## DTOs
-
-If a type exists only to move data across boundaries:
-
-> A shared DTO may be appropriate.
-
-If the type contains business invariants or behavior:
-
-> It belongs inside the owning module's domain.
-
----
-
-## Orchestration
-
-If a workflow clearly produces an outcome owned by one module:
-
-> That module should orchestrate the workflow.
-
-If the workflow itself represents an independent business capability:
-
-> Create an orchestration module.
-
-If orchestration exists only to reduce visible dependencies:
-
-> Reconsider the design.
-
----
-
-## Events
-
-If another module must immediately return a result:
-
-> Use a synchronous root contract.
-
-If other modules should independently react to something that already happened:
-
-> Publish a public integration event.
-
-If an event says what another module should do:
-
-> It is probably a command and should be reconsidered.
-
----
-
-## Transactions
-
-If an operation changes only one module's state:
-
-> That module owns the transaction.
-
-If a workflow spans multiple modules:
-
-> Each module commits its own state.
-
-If partial failure matters:
-
-> The orchestrator must define retry, compensation, idempotency, resumability, or another explicit recovery strategy.
-
----
-
-## Persistence
-
-If code accesses feature-owned business data:
-
-> It belongs to the owning module.
-
-If code provides technical persistence infrastructure without knowing business semantics:
-
-> It may belong in infrastructure.
-
----
-
-## Abstraction
-
-Create an abstraction only when it:
-
-* protects a meaningful boundary
-* enables genuine substitution
-* clarifies ownership
-* reduces meaningful complexity
-
-Do not create abstractions merely to satisfy architectural convention.
-
----
-
-# Language Mapping
-
-## Java
-
-Use:
-
-* packages as module boundaries
-* public contracts in module roots
-* package-private/internal implementations where practical
-* registry or dependency-injection composition root
-* architecture tests such as ArchUnit where appropriate
-
-## C#
-
-Use:
-
-* namespaces or projects as module boundaries
-* public contract namespaces
-* internal implementations
-* dependency injection for composition
-* architecture tests where useful
-
-## Node / NestJS
-
-Use:
-
-* feature modules
-* exported providers/contracts
-* strict module exports
-* private internal providers
-* explicit public events
-
-## Go
-
-Use:
-
-* package boundaries
-* exported module APIs
-* internal packages
-* explicit dependency composition
-* narrow capability-oriented interfaces
-
----
-
-# Architectural Intent
-
-This architecture intentionally favors:
-
-* strong feature ownership
-* explicit module boundaries
-* hidden implementation details
-* small and understandable public surfaces
-* module-owned persistence
-* data ownership
-* controlled cross-module interaction
-* acyclic dependencies
-* explicit orchestration
-* recoverable workflows
-* feature-oriented locality
-* pragmatic internal architecture
-* architectural clarity over architectural purity
-
-The architecture intentionally avoids:
-
-* global horizontal business layers
-* shared persistence models
-* cross-module repository access
-* giant universal service interfaces
-* interface-per-method ceremony
-* hidden business orchestration in infrastructure
-* global transactional assumptions
-* uncontrolled event coupling
-* circular module dependencies
-* abstraction for abstraction's sake
-
----
-
-# Core Mental Model
-
-Think of each module as a small application inside the larger application.
-
-Each module:
-
-```text
-owns its behavior
-owns its domain
-owns its data
-owns its transactions
-hides its implementation
-publishes explicit capabilities
-publishes explicit integration events
-```
-
-Other modules may know only what the module deliberately exposes.
-
-For workflows spanning multiple modules:
-
-```text
-Feature modules own business state.
-
-Orchestration modules own workflow state.
-
-Public contracts express synchronous capabilities.
-
-Public events express completed facts.
-
-The composition root only connects the system.
-```
-
-The primary architectural objective is not strict adherence to a named pattern.
-
-The objective is to produce a system where:
-
-* changes remain local
-* module ownership is clear
-* dependencies are visible
-* implementation details remain replaceable
-* business capabilities remain understandable
-* cross-module workflows remain explicit
-* architectural boundaries survive growth
+> **Avoid module bleeding.**
