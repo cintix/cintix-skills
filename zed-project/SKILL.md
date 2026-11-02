@@ -1,5 +1,6 @@
 ---
-description: Set up a project for Zed editor — auto-detects language and creates the right LSP/config files for Java, .NET/C#, PHP, C++, or PlatformIO/Arduino
+name: zed-project
+description: Set up a project for Zed editor — auto-detects language and creates the right LSP/config files for Java, .NET/C#, PHP, C++, or PlatformIO/Arduino. Use when a project needs Zed language server support, project descriptors, or formatter configuration.
 argument-hint: [language]
 arguments: language
 ---
